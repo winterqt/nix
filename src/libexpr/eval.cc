@@ -741,7 +741,7 @@ void mkPath(Value & v, const char * s)
 
 inline Value * EvalState::lookupVar(Env * env, const ExprVar & var, bool noEval)
 {
-    for (size_t l = var.level; l; --l, env = env->up) ;
+    for (auto l = var.level; l; --l, env = env->up) ;
 
     if (!var.fromWith) return env->values[var.displ];
 
@@ -1022,7 +1022,7 @@ void ExprAttrs::eval(EvalState & state, Env & env, Value & v)
         /* The recursive attributes are evaluated in the new
            environment, while the inherited attributes are evaluated
            in the original environment. */
-        size_t displ = 0;
+        Displacement displ = 0;
         for (auto & i : attrs) {
             Value * vAttr;
             if (hasOverrides && !i.second.inherited) {
@@ -1096,7 +1096,7 @@ void ExprLet::eval(EvalState & state, Env & env, Value & v)
     /* The recursive attributes are evaluated in the new environment,
        while the inherited attributes are evaluated in the original
        environment. */
-    size_t displ = 0;
+    Displacement displ = 0;
     for (auto & i : attrs->attrs)
         env2.values[displ++] = i.second.e->maybeThunk(state, i.second.inherited ? env : env2);
 
@@ -1249,7 +1249,7 @@ void EvalState::callFunction(Value & fun, size_t nrArgs, Value * * args, Value &
             Env & env2(allocEnv(size));
             env2.up = vCur.lambda.env;
 
-            size_t displ = 0;
+            Displacement displ = 0;
 
             if (!lambda.matchAttrs)
                 env2.values[displ++] = args[0];
