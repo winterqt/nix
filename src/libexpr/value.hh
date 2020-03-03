@@ -21,6 +21,7 @@ typedef enum {
     tListN,
     tThunk,
     tApp,
+    tPartialApp,
     tLambda,
     tBlackhole,
     tPrimOp,

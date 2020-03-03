@@ -370,6 +370,7 @@ static void prim_typeOf(EvalState & state, const Pos & pos, Value * * args, Valu
         case tLambda:
         case tPrimOp:
         case tPrimOpApp:
+        case tPartialApp:
             t = "lambda";
             break;
         case tExternal:
@@ -421,6 +422,7 @@ static void prim_isFunction(EvalState & state, const Pos & pos, Value * * args, 
         case tLambda:
         case tPrimOp:
         case tPrimOpApp:
+        case tPartialApp:
             res = true;
             break;
         default:
@@ -2255,23 +2257,38 @@ static RegisterPrimOp primop_catAttrs({
 static void prim_functionArgs(EvalState & state, const Pos & pos, Value * * args, Value & v)
 {
     state.forceValue(*args[0], pos);
+
     if (args[0]->type == tPrimOpApp || args[0]->type == tPrimOp) {
         state.mkAttrs(v, 0);
         return;
     }
-    if (args[0]->type != tLambda)
+
+    if (args[0]->type != tLambda && args[0]->type != tPartialApp)
         throw TypeError({
             .hint = hintfmt("'functionArgs' requires a function"),
             .errPos = pos
         });
 
-    if (!args[0]->lambda.fun->matchAttrs) {
+    size_t argsDone = 0;
+    auto lambda = args[0];
+    while (lambda->type == tPartialApp) {
+        argsDone++;
+        lambda = lambda->app.left;
+    }
+    assert(lambda->type == tLambda);
+
+    assert(argsDone < lambda->lambda.fun->args.size());
+
+    // FIXME: handle partially applied functions
+    auto formals = lambda->lambda.fun->args[argsDone].formals;
+
+    if (!formals) {
         state.mkAttrs(v, 0);
         return;
     }
 
-    state.mkAttrs(v, args[0]->lambda.fun->formals->formals.size());
-    for (auto & i : args[0]->lambda.fun->formals->formals) {
+    state.mkAttrs(v, formals->formals.size());
+    for (auto & i : formals->formals) {
         // !!! should optimise booleans (allocate only once)
         Value * value = state.allocValue();
         v.attrs->push_back(Attr(i.name, value, &i.pos));

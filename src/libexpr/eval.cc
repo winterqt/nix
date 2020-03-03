@@ -123,6 +123,7 @@ static void printValue(std::ostream & str, std::set<const Value *> & active, con
         break;
     case tThunk:
     case tApp:
+    case tPartialApp:
         str << "<CODE>";
         break;
     case tLambda:
@@ -177,7 +178,7 @@ string showType(ValueType type)
         case tAttrs: return "a set";
         case tList1: case tList2: case tListN: return "a list";
         case tThunk: return "a thunk";
-        case tApp: return "a function application";
+        case tApp: case tPartialApp: return "a function application";
         case tLambda: return "a function";
         case tBlackhole: return "a black hole";
         case tPrimOp: return "a built-in function";
@@ -1241,35 +1242,28 @@ void EvalState::callFunction(Value & fun, size_t nrArgs, Value * * args, Value &
         }
     };
 
-    while (nrArgs > 0) {
+    auto callLambda = [&](Env * env, ExprLambda & lambda, Value * * args)
+    {
+        Env & env2(allocEnv(lambda.envSize));
+        env2.up = env;
 
-        if (vCur.type == tLambda) {
+        Displacement displ = 0;
 
-            ExprLambda & lambda(*vCur.lambda.fun);
+        for (auto & arg : lambda.args) {
+            auto vArg = *args++;
 
-            auto size =
-                (lambda.arg.empty() ? 0 : 1) +
-                (lambda.matchAttrs ? lambda.formals->formals.size() : 0);
-            Env & env2(allocEnv(size));
-            env2.up = vCur.lambda.env;
+            if (arg.arg != sEpsilon)
+                env2.values[displ++] = vArg;
 
-            Displacement displ = 0;
-
-            if (!lambda.matchAttrs)
-                env2.values[displ++] = args[0];
-
-            else {
-                forceAttrs(*args[0], pos);
-
-                if (!lambda.arg.empty())
-                    env2.values[displ++] = args[0];
+            if (arg.formals) {
+                forceAttrs(*vArg, pos);
 
                 /* For each formal argument, get the actual argument.  If
                    there is no matching actual argument but the formal
                    argument has a default, use the default. */
                 size_t attrsUsed = 0;
-                for (auto & i : lambda.formals->formals) {
-                    auto j = args[0]->attrs->get(i.name);
+                for (auto & i : arg.formals->formals) {
+                    auto j = vArg->attrs->get(i.name);
                     if (!j) {
                         if (!i.def) throwTypeError(pos, "%1% called without required argument '%2%'",
                             lambda, i.name);
@@ -1282,35 +1276,100 @@ void EvalState::callFunction(Value & fun, size_t nrArgs, Value * * args, Value &
 
                 /* Check that each actual argument is listed as a formal
                    argument (unless the attribute match specifies a `...'). */
-                if (!lambda.formals->ellipsis && attrsUsed != args[0]->attrs->size()) {
+                if (!arg.formals->ellipsis && attrsUsed != vArg->attrs->size()) {
                     /* Nope, so show the first unexpected argument to the
                        user. */
-                    for (auto & i : *args[0]->attrs)
-                        if (lambda.formals->argNames.find(i.name) == lambda.formals->argNames.end())
+                    for (auto & i : *vArg->attrs)
+                        if (arg.formals->argNames.find(i.name) == arg.formals->argNames.end())
                             throwTypeError(pos, "%1% called with unexpected argument '%2%'", lambda, i.name);
                     abort(); // can't happen
                 }
             }
+        }
 
-            nrFunctionCalls++;
-            if (countCalls) incrFunctionCall(&lambda);
+        assert(displ == lambda.envSize);
 
-            /* Evaluate the body. */
-            try {
-                lambda.body->eval(*this, env2, vCur);
-            } catch (Error & e) {
-                if (loggerSettings.showTrace.get()) {
-                    addErrorTrace(e, lambda.pos, "while evaluating %s",
-                        (lambda.name.set()
-                            ? "'" + (string) lambda.name + "'"
-                            : "anonymous lambda"));
-                    addErrorTrace(e, pos, "from call site%s", "");
-                }
-                throw;
+        nrFunctionCalls++;
+        if (countCalls) incrFunctionCall(&lambda);
+
+        /* Evaluate the body. */
+        try {
+            lambda.body->eval(*this, env2, vCur);
+        } catch (Error & e) {
+            if (loggerSettings.showTrace) {
+                addErrorTrace(e, lambda.pos, "while evaluating %s",
+                    (lambda.name.set()
+                        ? "'" + (string) lambda.name + "'"
+                        : "anonymous lambda"));
+                addErrorTrace(e, pos, "from call site%s", "");
             }
+            throw;
+        }
+    };
 
-            nrArgs--;
-            args += 1;
+    while (nrArgs > 0) {
+
+        if (vCur.type == tLambda) {
+
+            ExprLambda & lambda(*vCur.lambda.fun);
+
+            if (nrArgs < lambda.args.size()) {
+                vRes = vCur;
+                for (size_t i = 0; i < nrArgs; ++i) {
+                    auto fun2 = allocValue();
+                    *fun2 = vRes;
+                    vRes.type = tPartialApp;
+                    vRes.app.left = fun2;
+                    vRes.app.right = args[i];
+                }
+                return;
+            } else {
+                callLambda(vCur.lambda.env, lambda, args);
+                nrArgs -= lambda.args.size();
+                args += lambda.args.size();
+            }
+        }
+
+        else if (vCur.type == tPartialApp) {
+            /* Figure out the number of arguments still needed. */
+            size_t argsDone = 0;
+            Value * lambda = &vCur;
+            while (lambda->type == tPartialApp) {
+                argsDone++;
+                lambda = lambda->app.left;
+            }
+            assert(lambda->type == tLambda);
+            auto arity = lambda->lambda.fun->args.size();
+            auto argsLeft = arity - argsDone;
+
+            if (nrArgs < argsLeft) {
+                /* We still don't have enough arguments, so extend the tPartialApp chain. */
+                vRes = vCur;
+                for (size_t i = 0; i < nrArgs; ++i) {
+                    auto fun2 = allocValue();
+                    *fun2 = vRes;
+                    vRes.type = tPartialApp;
+                    vRes.app.left = fun2;
+                    vRes.app.right = args[i];
+                }
+                return;
+            } else {
+                /* We have all the arguments, so call the function
+                   with the previous and new arguments. */
+
+                Value * vArgs[arity];
+                auto n = argsDone;
+                for (Value * arg = &vCur; arg->type == tPartialApp; arg = arg->app.left)
+                    vArgs[--n] = arg->app.right;
+
+                for (size_t i = 0; i < argsLeft; ++i)
+                    vArgs[argsDone + i] = args[i];
+
+                nrArgs -= argsLeft;
+                args += argsLeft;
+
+                callLambda(lambda->lambda.env, *lambda->lambda.fun, vArgs);
+            }
         }
 
         else if (vCur.type == tPrimOp) {
@@ -1424,36 +1483,43 @@ void EvalState::autoCallFunction(Bindings & args, Value & fun, Value & res)
         }
     }
 
-    if (fun.type != tLambda || !fun.lambda.fun->matchAttrs) {
+    if (fun.type != tLambda) {
         res = fun;
         return;
     }
 
-    Value * actualArgs = allocValue();
-    mkAttrs(*actualArgs, std::max(static_cast<uint32_t>(fun.lambda.fun->formals->formals.size()), args.size()));
+    Value * actualArgs[fun.lambda.fun->args.size()];
 
-    if (fun.lambda.fun->formals->ellipsis) {
-        // If the formals have an ellipsis (eg the function accepts extra args) pass
-        // all available automatic arguments (which includes arguments specified on
-        // the command line via --arg/--argstr)
-        for (auto& v : args) {
-            actualArgs->attrs->push_back(v);
+    for (const auto & [i, arg] : enumerate(fun.lambda.fun->args)) {
+        if (!arg.formals) {
+            res = fun;
+            return;
         }
-    } else {
-        // Otherwise, only pass the arguments that the function accepts
-        for (auto & i : fun.lambda.fun->formals->formals) {
-            Bindings::iterator j = args.find(i.name);
-            if (j != args.end()) {
-                actualArgs->attrs->push_back(*j);
-            } else if (!i.def) {
-                throwTypeError("cannot auto-call a function that has an argument without a default value ('%1%')", i.name);
+
+        actualArgs[i] = allocValue();
+        mkAttrs(*actualArgs[i], std::max(arg.formals->formals.size(), static_cast<size_t>(args.size())));
+
+        if (arg.formals->ellipsis) {
+            /* If the formals have an ellipsis (i.e. the function
+               accepts extra args), pass all available automatic
+               arguments. */
+            for (auto & v : args)
+                actualArgs[i]->attrs->push_back(v);
+        } else {
+            /* Otherwise, only pass the arguments that the function
+               accepts. */
+            for (auto & j : arg.formals->formals) {
+                if (auto attr = args.get(j.name))
+                    actualArgs[i]->attrs->push_back(*attr);
+                else if (!j.def)
+                    throwTypeError("cannot auto-call a function that has an argument without a default value ('%s')", j.name);
             }
         }
+
+        actualArgs[i]->attrs->sort();
     }
 
-    actualArgs->attrs->sort();
-
-    callFunction(fun, *actualArgs, res, noPos);
+    callFunction(fun, fun.lambda.fun->args.size(), actualArgs, res, noPos);
 }
 
 
@@ -1732,8 +1798,8 @@ bool EvalState::isFunctor(Value & fun)
 
 void EvalState::forceFunction(Value & v, const Pos & pos)
 {
-    forceValue(v, pos);
-    if (v.type != tLambda && v.type != tPrimOp && v.type != tPrimOpApp && !isFunctor(v))
+    forceValue(v);
+    if (v.type != tLambda && v.type != tPartialApp && v.type != tPrimOp && v.type != tPrimOpApp && !isFunctor(v))
         throwTypeError(pos, "value is %1% while a function was expected", v);
 }
 
