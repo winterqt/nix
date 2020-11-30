@@ -148,6 +148,12 @@ struct Value
         NixFloat fpoint;
     };
 
+    /* Whether this is a value that can be called. */
+    bool isLambda() const
+    {
+        return type == tLambda || type == tPartialApp || type == tPrimOp || type == tPrimOpApp;
+    }
+
     bool isList() const
     {
         return type == tList1 || type == tList2 || type == tListN;

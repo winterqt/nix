@@ -1811,7 +1811,7 @@ static void prim_filterSource(EvalState & state, const Pos & pos, Value * * args
         });
 
     state.forceValue(*args[0], pos);
-    if (args[0]->type != tLambda)
+    if (!args[0]->isLambda())
         throw TypeError({
             .hint = hintfmt(
                 "first argument in call to 'filterSource' is not a function but %1%",
@@ -2263,7 +2263,7 @@ static void prim_functionArgs(EvalState & state, const Pos & pos, Value * * args
         return;
     }
 
-    if (args[0]->type != tLambda && args[0]->type != tPartialApp)
+    if (!args[0]->isLambda())
         throw TypeError({
             .hint = hintfmt("'functionArgs' requires a function"),
             .errPos = pos
