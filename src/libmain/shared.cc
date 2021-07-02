@@ -386,6 +386,7 @@ RunPager::RunPager()
 
     if (dup2(toPager.writeSide.get(), STDOUT_FILENO) == -1)
         throw SysError("dupping stdout");
+    setLogFormat(LogFormat::raw);
 }
 
 
