@@ -61,6 +61,7 @@ struct CmdSearch : InstallableCommand, MixJSON
 
     void run(ref<Store> store) override
     {
+        RunPager pager;
         settings.readOnlyMode = true;
 
         // Empty search string should match all packages

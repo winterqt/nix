@@ -152,6 +152,8 @@ struct CmdFlakeMetadata : FlakeCommand, MixJSON
         auto lockedFlake = lockFlake();
         auto & flake = lockedFlake.flake;
 
+        RunPager pager;
+
         if (json) {
             nlohmann::json j;
             if (flake.description)
@@ -871,6 +873,8 @@ struct CmdFlakeShow : FlakeCommand
     {
         auto state = getEvalState();
         auto flake = std::make_shared<LockedFlake>(lockFlake());
+
+        RunPager pager;
 
         std::function<void(eval_cache::AttrCursor & visitor, const std::vector<Symbol> & attrPath, const std::string & headerPrefix, const std::string & nextPrefix)> visit;
 
