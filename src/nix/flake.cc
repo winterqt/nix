@@ -5,6 +5,7 @@
 #include "eval-inline.hh"
 #include "flake/flake.hh"
 #include "get-drvs.hh"
+#include "loggers.hh"
 #include "store-api.hh"
 #include "derivations.hh"
 #include "path-with-outputs.hh"
@@ -152,7 +153,7 @@ struct CmdFlakeMetadata : FlakeCommand, MixJSON
         auto lockedFlake = lockFlake();
         auto & flake = lockedFlake.flake;
 
-        RunPager pager;
+        runPager();
 
         if (json) {
             nlohmann::json j;
@@ -874,7 +875,7 @@ struct CmdFlakeShow : FlakeCommand
         auto state = getEvalState();
         auto flake = std::make_shared<LockedFlake>(lockFlake());
 
-        RunPager pager;
+        runPager();
 
         std::function<void(eval_cache::AttrCursor & visitor, const std::vector<Symbol> & attrPath, const std::string & headerPrefix, const std::string & nextPrefix)> visit;
 

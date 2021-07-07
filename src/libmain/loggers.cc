@@ -1,5 +1,6 @@
 #include "loggers.hh"
 #include "progress-bar.hh"
+#include "paged-logger.hh"
 #include "util.hh"
 
 namespace nix {
@@ -48,6 +49,10 @@ void setLogFormat(const LogFormat & logFormat) {
 
 void createDefaultLogger() {
     logger = makeDefaultLogger();
+}
+
+void runPager() {
+    logger = make_ref<PagedLogger>(logger);
 }
 
 }

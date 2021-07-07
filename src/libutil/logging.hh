@@ -99,6 +99,8 @@ public:
 
     virtual void writeToStdout(std::string_view s);
 
+    virtual void setNonInteractive() {}
+
     template<typename... Args>
     inline void cout(const std::string & fs, const Args & ... args)
     {

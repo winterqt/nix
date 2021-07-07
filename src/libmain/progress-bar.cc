@@ -102,11 +102,11 @@ public:
 
     ~ProgressBar()
     {
-        stop();
+        setNonInteractive();
         updateThread.join();
     }
 
-    void stop() override
+    void setNonInteractive() override
     {
         auto state(state_.lock());
         if (!state->active) return;
@@ -496,7 +496,7 @@ void startProgressBar(bool printBuildLogs)
 void stopProgressBar()
 {
     auto progressBar = dynamic_cast<ProgressBar *>(logger.get_ptr().get());
-    if (progressBar) progressBar->stop();
+    if (progressBar) progressBar->setNonInteractive();
 
 }
 

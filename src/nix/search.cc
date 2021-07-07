@@ -9,6 +9,7 @@
 #include "shared.hh"
 #include "eval-cache.hh"
 #include "attr-path.hh"
+#include "loggers.hh"
 
 #include <regex>
 #include <fstream>
@@ -61,7 +62,7 @@ struct CmdSearch : InstallableCommand, MixJSON
 
     void run(ref<Store> store) override
     {
-        RunPager pager;
+        runPager();
         settings.readOnlyMode = true;
 
         // Empty search string should match all packages
