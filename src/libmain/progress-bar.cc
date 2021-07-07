@@ -480,9 +480,9 @@ public:
     }
 };
 
-Logger * makeProgressBar(bool printBuildLogs)
+ref<Logger> makeProgressBar(bool printBuildLogs)
 {
-    return new ProgressBar(
+    return make_ref<ProgressBar>(
         printBuildLogs,
         isatty(STDERR_FILENO) && getEnv("TERM").value_or("dumb") != "dumb"
     );
@@ -495,7 +495,7 @@ void startProgressBar(bool printBuildLogs)
 
 void stopProgressBar()
 {
-    auto progressBar = dynamic_cast<ProgressBar *>(logger);
+    auto progressBar = dynamic_cast<ProgressBar *>(logger.get_ptr().get());
     if (progressBar) progressBar->stop();
 
 }
