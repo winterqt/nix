@@ -26,29 +26,32 @@
 
       forAllSystems = f: nixpkgs.lib.genAttrs systems (system: f system);
       forAllSystemsAndStdenvs = f: forAllSystems (system:
-        let stdenvsPackages =
-          nixpkgs.lib.listToAttrs
+        nixpkgs.lib.listToAttrs
           (map
             (n:
             nixpkgs.lib.nameValuePair "${n}Packages" (
               f system n
             )) stdenvs
-            );
-        in
-        stdenvsPackages // stdenvsPackages.stdenvPackages
+          )
       );
 
       forAllStdenvs = stdenvs: f: nixpkgs.lib.genAttrs stdenvs (stdenv: f stdenv);
 
       # Memoize nixpkgs for different platforms for efficiency.
-      nixpkgsFor = forAllSystemsAndStdenvs (system: stdenv:
-        import nixpkgs {
-          inherit system;
-          overlays = [
-            (overlayFor (p: p.${stdenv}))
-          ];
-        }
-      );
+      nixpkgsFor =
+        let stdenvsPackages = forAllSystemsAndStdenvs
+          (system: stdenv:
+            import nixpkgs {
+              inherit system;
+              overlays = [
+                (overlayFor (p: p.${stdenv}))
+              ];
+            }
+          );
+        in
+        # Add the `stdenvPackages` at toplevel, both because these are the ones
+        # we want most of the time and for backwards compatibility
+        forAllSystems (system: stdenvsPackages.${system} // stdenvsPackages.${system}.stdenvPackages);
 
       commonDeps = pkgs: with pkgs; rec {
         # Use "busybox-sandbox-shell" if present,
@@ -619,7 +622,9 @@
 
       defaultPackage = forAllSystems (system: self.packages.${system}.nix);
 
-      devShell = forAllSystemsAndStdenvs (system: stdenv:
+      devShell = forAllSystems (system: self.devShells.${system}.stdenvPackages);
+
+      devShells = forAllSystemsAndStdenvs (system: stdenv:
         with nixpkgsFor.${system};
         with commonDeps pkgs;
 
