@@ -45,13 +45,13 @@ To get a shell with a different compilation environment (e.g. stdenv,
 gccStdenv, clangStdenv, clang11Stdenv):
 
 ```console
-$ nix-shell -A devShell.x86_64-linux.clang11StdenvPackages
+$ nix-shell -A devShells.x86_64-linux.clang11StdenvPackages
 ```
 
 or if you have a flake-enabled nix:
 
 ```console
-$ nix develop .#devShell.x86_64-linux.clang11StdenvPackages
+$ nix develop .#clang11StdenvPackages
 ```
 
 To build Nix itself in this shell:
