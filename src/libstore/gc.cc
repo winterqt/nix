@@ -13,6 +13,8 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <sys/socket.h>
+#include <sys/un.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -303,25 +305,31 @@ Roots LocalStore::findRoots(bool censor)
 {
     Roots roots;
 
-    Pipe fromHelper;
-    fromHelper.create();
-    Pid helperPid = startProcess([&]() {
-        if (dup2(fromHelper.writeSide.get(), STDOUT_FILENO) == -1)
-            throw SysError("cannot pipe standard output into log file");
-        if (chdir("/") == -1) throw SysError("changing into /");
-        auto helperProgram = settings.nixLibexecDir + "/nix/nix-find-roots";
-        Strings args = {std::string(baseNameOf(helperProgram))};
-        execv(
-            helperProgram.c_str(),
-            stringsToCharPtrs(args).data()
-        );
+    auto fd = AutoCloseFD(socket(PF_UNIX, SOCK_STREAM
+        #ifdef SOCK_CLOEXEC
+        | SOCK_CLOEXEC
+        #endif
+        , 0));
+    if (!fd)
+        throw SysError("cannot create Unix domain socket");
+    closeOnExec(fd.get());
 
-        throw SysError("executing '%s'", helperProgram);
-    });
+    // FIXME: Don’t hardcode
+    string socketPath = "/nix/var/nix/gc-socket/socket";
+
+    struct sockaddr_un addr;
+    addr.sun_family = AF_UNIX;
+
+    if (socketPath.size() + 1 >= sizeof(addr.sun_path))
+        throw Error("socket path '%1%' is too long", socketPath);
+    strcpy(addr.sun_path, socketPath.c_str());
+
+    if (::connect(fd.get(), (struct sockaddr *) &addr, sizeof(addr)) == -1)
+        throw SysError("cannot connect to the gc daemon at '%1%'", socketPath);
 
     try {
         while (true) {
-            auto line = readLine(fromHelper.readSide.get());
+            auto line = readLine(fd.get());
             if (line.empty()) break; // TODO: Handle the broken symlinks
             auto parsedLine = tokenizeString<std::vector<string>>(line, "\t");
             if (parsedLine.size() != 2)
@@ -334,10 +342,6 @@ Roots LocalStore::findRoots(bool censor)
         }
     } catch (EndOfFile &) {
     }
-
-    int res = helperPid.wait();
-    if (res != 0)
-        throw Error("unable to start the gc helper process");
 
     return roots;
 }
