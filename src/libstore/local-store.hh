@@ -251,6 +251,8 @@ private:
 
     AutoCloseFD openGCLock(LockType lockType);
 
+    Roots findRootsNoExternalDaemon(bool censor);
+
     void findRoots(const Path & path, unsigned char type, Roots & roots);
 
     void findRootsNoTemp(Roots & roots, bool censor);
