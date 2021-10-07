@@ -354,7 +354,7 @@ Roots LocalStore::findRoots(bool censor)
                 auto destPath = toStorePath(rawDestPath).first;
                 if (!isValidPath(destPath)) continue;
                 roots[destPath].insert(
-                    censor && isInDir(retainer, stateDir) ? retainer : censored);
+                    (!censor || isInDir(retainer, stateDir)) ? retainer : censored);
             } catch (Error &) {
             }
         }
