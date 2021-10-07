@@ -42,17 +42,23 @@ struct GlobalOpts {
     fs::path stateDir = "/nix/var/nix";
     fs::path socketPath = "/nix/var/nix/gc-socket/socket";
     enum VerbosityLvl {
-        Quiet,
-        Verbose
+        Quiet = 0,
+        Normal = 1,
+        Verbose = 2
     };
     VerbosityLvl verbosity = Quiet;
 };
 
-void log(GlobalOpts::VerbosityLvl verbosity, std::string_view msg)
+void log(GlobalOpts::VerbosityLvl currentVerbosity, GlobalOpts::VerbosityLvl minVerbosity, std::string_view msg)
 {
-    if (verbosity == GlobalOpts::Quiet)
+    if (currentVerbosity < minVerbosity)
         return;
     std::cerr << msg << std::endl;
+}
+
+void debug(GlobalOpts::VerbosityLvl currentVerbosity, std::string_view msg)
+{
+    log(currentVerbosity, GlobalOpts::Verbose, msg);
 }
 
 GlobalOpts parseCmdLine(int argc, char** argv)
@@ -71,7 +77,7 @@ GlobalOpts parseCmdLine(int argc, char** argv)
 
     int option_index = 0;
     int opt_char;
-    while((opt_char = getopt_long(argc, argv, "vsl:",
+    while((opt_char = getopt_long(argc, argv, "vd:s:l:",
                     long_options, &option_index)) != -1) {
         switch (opt_char) {
             case 0:
@@ -129,9 +135,11 @@ void followPathToStore(
     int recursionsLeft,
     TraceResult & res,
     const fs::path & root,
-    const fs::file_status & status)
+    const fs::file_status & status,
+    const std::optional<const fs::path> & parent = std::nullopt
+    )
 {
-    log(opts.verbosity, "Considering file " + root.string());
+    debug(opts.verbosity, "Considering file " + root.string());
 
     if (recursionsLeft < 0)
         return;
@@ -148,8 +156,8 @@ void followPathToStore(
             {
                 auto target = root.parent_path() / fs::read_symlink(root);
                 auto not_found = [&](std::string msg) {
-                    log(opts.verbosity, "Error accessing the file " + target.string() + ": " + msg);
-                    log(opts.verbosity, "(When resolving the symlink " + root.string() + ")");
+                    debug(opts.verbosity, "Error accessing the file " + target.string() + ": " + msg);
+                    debug(opts.verbosity, "(When resolving the symlink " + root.string() + ")");
                     res.deadLinks.insert(root);
                 };
                 try {
@@ -189,7 +197,7 @@ void followPathToStore(
         auto status = fs::symlink_status(root);
         followPathToStore(opts, recursionsLeft, res, root, status);
     } catch (fs::filesystem_error & e) {
-        log(opts.verbosity, "Error accessing the file " + root.string() + ": " + e.what());
+        debug(opts.verbosity, "Error accessing the file " + root.string() + ": " + e.what());
     }
 }
 
@@ -280,7 +288,7 @@ Roots getRuntimeRoots(GlobalOpts opts)
             || !procEntry.is_directory())
             continue;
 
-        log(opts.verbosity, "Considering path " + procEntry.path().string());
+        debug(opts.verbosity, "Considering path " + procEntry.path().string());
 
         // A set of paths used by the executable and possibly symlinks to a
         // path in the store
@@ -300,7 +308,7 @@ Roots getRuntimeRoots(GlobalOpts opts)
             if (isInStore(opts.storeDir, realPath))
                 res[realPath].insert(path);
         } catch (fs::filesystem_error &e) {
-            log(opts.verbosity, e.what());
+            debug(opts.verbosity, e.what());
         }
 
         // Scan the environment of the executable
@@ -355,6 +363,8 @@ int main(int argc, char * * argv)
             if (errno == EINTR) continue;
             throw Error("Error accepting the connection");
         }
+
+        log(opts.verbosity, GlobalOpts::Quiet, "accepted connection");
 
         auto traceResult = followPathsToStore(opts, standardRoots);
         auto runtimeRoots = getRuntimeRoots(opts);
