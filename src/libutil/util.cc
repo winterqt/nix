@@ -943,9 +943,6 @@ void killUser(uid_t uid)
        users to which the current process can send signals.  So we
        fork a process, switch to uid, and send a mass kill. */
 
-    ProcessOptions options;
-    options.allowVfork = false;
-
     Pid pid = startProcess([&]() {
 
         if (setuid(uid) == -1)
@@ -968,7 +965,7 @@ void killUser(uid_t uid)
         }
 
         _exit(0);
-    }, options);
+    });
 
     int status = pid.wait();
     if (status != 0)
@@ -1089,8 +1086,7 @@ void runProgram2(const RunOptions & options)
     // vfork implies that the environment of the main process and the fork will
     // be shared (technically this is undefined, but in practice that's the
     // case), so we can't use it if we alter the environment
-    if (options.environment)
-        processOptions.allowVfork = false;
+    processOptions.allowVfork = !options.environment;
 
     /* Fork. */
     Pid pid = startProcess([&]() {
